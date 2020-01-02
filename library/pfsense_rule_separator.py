@@ -14,7 +14,7 @@ ANSIBLE_METADATA = {'metadata_version': '1.1',
 DOCUMENTATION = """
 ---
 module: pfsense_rule_separator
-version_added: "2.8"
+version_added: "2.9"
 author: Frederic Bor (@f-bor)
 short_description: Manage pfSense rule separators
 description:
@@ -24,25 +24,31 @@ options:
   name:
     description: The name of the separator
     required: true
+    type: str
   state:
     description: State in which to leave the separator
     required: true
     choices: [ "present", "absent" ]
     default: present
+    type: str
   interface:
     description: The interface for the separator
     required: true
+    type: str
   floating:
     description: Is the rule on floating tab
     type: bool
   after:
     description: Rule to go after, or "top"
+    type: str
   before:
     description: Rule to go before, or "bottom"
+    type: str
   color:
     description: The separator's color
     default: info
     choices: [ 'info', 'warning', 'danger', 'success' ]
+    type: str
 """
 
 EXAMPLES = """
@@ -68,22 +74,22 @@ commands:
 """
 
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.networking.pfsense.pfsense_rule_separator import PFSenseRuleSeparatorModule
-from ansible.module_utils.networking.pfsense.pfsense_rule_separator import RULE_SEPARATORS_ARGUMENT_SPEC
-from ansible.module_utils.networking.pfsense.pfsense_rule_separator import RULE_SEPARATORS_REQUIRED_ONE_OF
-from ansible.module_utils.networking.pfsense.pfsense_rule_separator import RULE_SEPARATORS_MUTUALLY_EXCLUSIVE
+from ansible.module_utils.network.pfsense.pfsense_rule_separator import PFSenseRuleSeparatorModule
+from ansible.module_utils.network.pfsense.pfsense_rule_separator import RULE_SEPARATOR_ARGUMENT_SPEC
+from ansible.module_utils.network.pfsense.pfsense_rule_separator import RULE_SEPARATOR_REQUIRED_ONE_OF
+from ansible.module_utils.network.pfsense.pfsense_rule_separator import RULE_SEPARATOR_MUTUALLY_EXCLUSIVE
 
 
 def main():
     module = AnsibleModule(
-        argument_spec=RULE_SEPARATORS_ARGUMENT_SPEC,
-        required_one_of=RULE_SEPARATORS_REQUIRED_ONE_OF,
-        mutually_exclusive=RULE_SEPARATORS_MUTUALLY_EXCLUSIVE,
+        argument_spec=RULE_SEPARATOR_ARGUMENT_SPEC,
+        required_one_of=RULE_SEPARATOR_REQUIRED_ONE_OF,
+        mutually_exclusive=RULE_SEPARATOR_MUTUALLY_EXCLUSIVE,
         supports_check_mode=True)
 
-    pfseparator = PFSenseRuleSeparatorModule(module)
-    pfseparator.run(module.params)
-    pfseparator.commit_changes()
+    pfmodule = PFSenseRuleSeparatorModule(module)
+    pfmodule.run(module.params)
+    pfmodule.commit_changes()
 
 
 if __name__ == '__main__':

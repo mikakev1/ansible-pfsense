@@ -14,7 +14,7 @@ ANSIBLE_METADATA = {'metadata_version': '1.1',
 DOCUMENTATION = """
 ---
 module: pfsense_authserver_ldap
-version_added: "2.8"
+version_added: "2.9"
 short_description: Manage pfSense LDAP authentication servers
 description:
   >
@@ -25,51 +25,68 @@ options:
   name:
     description: The name of the authentication server
     required: true
+    type: str
   state:
     description: State in which to leave the authentication server
     required: true
     choices: [ "present", "absent" ]
+    type: str
   host:
     description: The hostname or IP address of the authentication server
     required: true
+    type: str
   port:
     description: Port to connect to
     default: 389
+    type: str
   transport:
     description: Transport to use
     choices: [ "tcp", "starttls", "ssl" ]
+    type: str
   ca:
     description: Certificat Authority
+    type: str
   protver:
     description: LDAP protocol version
     default: 3
     choices: [ "2", "3" ]
+    type: str
   timeout:
     description: Server timeout in seconds
     default: 25
+    type: str
   scope:
     description: Search scope
     choices: [ 'one', 'subtree' ]
+    type: str
   basedn:
     description: Search base DN
+    type: str
   authcn:
     description: Authentication containers added to basedn
+    type: str
   binddn:
     description: Search bind DN
+    type: str
   bindpw:
     description: Search bind password
+    type: str
   attr_user:
     description: LDAP User naming attribute
     default: cn
+    type: str
   attr_group:
     description: LDAP Group naming attribute
     default: cn
+    type: str
   attr_member:
     description: LDAP Group member naming attribute
     default: member
+    type: str
   attr_groupobj:
     description: LDAP Group objectClass naming attribute
     default: posixGroup
+    type: str
 
 """
 
@@ -100,7 +117,7 @@ RETURN = """
 """
 
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.networking.pfsense.pfsense import PFSenseModule
+from ansible.module_utils.network.pfsense.pfsense import PFSenseModule
 
 
 class PFSenseAuthserverLDAP(object):
@@ -127,7 +144,7 @@ class PFSenseAuthserverLDAP(object):
 
         # Replace the text CA name with the caref id
         authserver['ldap_caref'] = self.pfsense.get_caref(authserver['ca'])
-        if authserver['ldap_caref'] is None:
+        if authserver['ldap_caref'] is None and authserver['transport'] != 'tcp':
             self.module.fail_json(msg="could not find CA '%s'" % (authserver['ca']))
         del authserver['ca']
         if authserver_elt is None:
@@ -192,6 +209,10 @@ def main():
             'attr_member': {'default': 'member', 'type': 'str'},
             'attr_groupobj': {'default': 'posixGroup', 'type': 'str'},
         },
+        required_if=[
+            ["transport", "starttls", ["ca"]],
+            ["transport", "ssl", ["ca"]],
+        ],
         supports_check_mode=True)
 
     pfauthserverldap = PFSenseAuthserverLDAP(module)

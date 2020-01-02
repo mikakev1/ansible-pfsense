@@ -9,7 +9,7 @@ __metaclass__ = type
 DOCUMENTATION = """
 lookup: pfsense
 author: Frederic Bor (@f-bor)
-version_added: "2.8"
+version_added: "2.9"
 short_description: Generate pfSense aliases, rules and rule_separators
 description:
 - This lookup plugin is designed to be used with pfsense_aggregate module.
@@ -74,9 +74,12 @@ Rule separators name are taken from parent rules' groups (see 'ADMIN', 'VOIP',
 names in the form 'GROUP1 - GROUP2 - ...'
 
 You can define a default value for all rules and subrules of a separator using
-the name 'options'. The parameters supported this way are log, queue, ackqueue,
+the name 'options'. The parameters supported this way are gateway, log, queue, ackqueue,
 in_queue and out_queue. You can override those default values setting other values
 on a deeper options set or inside the rule definition.
+
+You can use an extra parameter in rules and options, filter, to restrict the rule
+generation only to the pfsenses set in this parameter.
 
 The yaml file must include the following definitions to describe the network topology:
 - pfsenses
@@ -191,6 +194,7 @@ ports_aliases:
 
 from copy import copy, deepcopy
 from collections import OrderedDict
+from ansible.utils.display import Display
 
 import json
 import re
@@ -201,13 +205,10 @@ from ansible.errors import AnsibleError
 from ansible.plugins.lookup import LookupBase
 from ansible.module_utils.compat import ipaddress
 
-OPTION_FIELDS = ['log', 'queue', 'ackqueue', 'in_queue', 'out_queue']
+OPTION_FIELDS = ['gateway', 'log', 'queue', 'ackqueue', 'in_queue', 'out_queue', 'filter']
+OUTPUT_OPTION_FIELDS = ['gateway', 'log', 'queue', 'ackqueue', 'in_queue', 'out_queue']
 
-try:
-    from __main__ import display
-except ImportError:
-    from ansible.utils.display import Display
-    display = Display()
+display = Display()
 
 
 def to_unicode(string):
@@ -651,7 +652,7 @@ class PFSenseRule(object):
         if self.action != "pass":
             res += ", action: " + " ".join(self.action)
 
-        for field in OPTION_FIELDS:
+        for field in OUTPUT_OPTION_FIELDS:
             value = self.get_option(field)
             if value is not None:
                 res += ', {0}: {1}'.format(field, value)
@@ -1639,6 +1640,7 @@ class PFSenseRuleFactory(object):
     def rule_interfaces_any(self, rule_obj):
         """ Return interfaces set on which the rule is needed to be defined
             Manage rules with any src or dst """
+
         src = rule_obj.src[0]
         dst = rule_obj.dst[0]
 
@@ -1708,6 +1710,12 @@ class PFSenseRuleFactory(object):
     def rule_interfaces(self, rule_obj):
         """ Return interfaces list on which the rule is needed to be defined """
 
+        # if the rule has a filter, apply it
+        # TODO: better filters (regex)
+        rule_filter = rule_obj.get_option('filter')
+        if rule_filter and self._data.target.name not in rule_filter.split(' '):
+            return set()
+
         if len(rule_obj.src) != 1 or len(rule_obj.dst) != 1:
             raise AssertionError()
 
@@ -1730,7 +1738,7 @@ class PFSenseRuleFactory(object):
             else:
                 interfaces.update(rule_obj.src[0].routed_by_interfaces(self._data.target))
 
-            if len(interfaces) != 1:
+            if len(interfaces) > 1:
                 raise AssertionError('Invalid local interfaces count for {0}: {1}'.format(rule_obj.name, len(interfaces)))
             return interfaces
 
@@ -1778,11 +1786,12 @@ class PFSenseRuleFactory(object):
         # we add interfaces the source can use to get in
         if not src_is_local:
             routing_interfaces = rule_obj.src[0].routed_by_interfaces(self._data.target)
-            # if they are both not local and on the same interface or with an unreachable destination
+            # if they are both not local and on the same interfaces or with an unreachable destination
             # we return nothing
             if not dst_is_local:
                 dst_routing_interfaces = rule_obj.dst[0].routed_by_interfaces(self._data.target)
-                if len(routing_interfaces) == 1 and routing_interfaces == dst_routing_interfaces or not dst_routing_interfaces:
+                routing_interfaces = routing_interfaces.difference(dst_routing_interfaces)
+                if not routing_interfaces or not dst_routing_interfaces:
                     return set()
 
             # if the interfaces we would use are bridged, and the destinations are on local bridges too
@@ -1829,7 +1838,7 @@ class PFSenseRuleFactory(object):
                 definition = {}
                 definition['name'] = name
                 definition['action'] = rule_obj.action
-                for field in OPTION_FIELDS:
+                for field in OUTPUT_OPTION_FIELDS:
                     definition[field] = rule_obj.get_option(field)
                 definition['interface'] = interface
                 definition['state'] = 'present'
@@ -1852,7 +1861,7 @@ class PFSenseRuleFactory(object):
                     rule_name = name + "_" + str(rule_idx)
                     definition['name'] = rule_name
                     definition['action'] = rule_obj.action
-                    for field in OPTION_FIELDS:
+                    for field in OUTPUT_OPTION_FIELDS:
                         definition[field] = rule_obj.get_option(field)
                     definition['interface'] = interface
                     definition['state'] = 'present'
@@ -1911,29 +1920,33 @@ class PFSenseRuleFactory(object):
 
         return ret
 
-    @staticmethod
-    def output_rules(rules):
+    def output_rules(self, rules):
         """ Output aliases definitions for pfsense_aggregate """
         print("          #===========================")
         print("          # Rules")
         print("          # ")
-        for rule in rules:
-            definition = ("          - { name: \"" + rule['name'] + "\", source: \""
-                          + rule['source'] + "\", destination: \"" + rule['destination']
-                          + "\", interface: \"" + rule['interface'] + "\", action: \"" + rule['action'] + "\"")
-            if rule.get('protocol'):
-                definition += ", protocol: \"" + rule['protocol'] + "\""
-            if rule.get('descr'):
-                definition += ", descr: \"" + rule['descr'] + "\""
-            for field in OPTION_FIELDS:
-                value = rule.get(field)
-                if value is not None:
-                    definition += ', {0}: {1}'.format(field, value)
+        interfaces = list(self._data.target.interfaces.keys())
+        interfaces.sort()
+        for interface in interfaces:
+            for rule in rules:
+                if interface != rule['interface']:
+                    continue
+                definition = ("          - { name: \"" + rule['name'] + "\", source: \""
+                              + rule['source'] + "\", destination: \"" + rule['destination']
+                              + "\", interface: \"" + rule['interface'] + "\", action: \"" + rule['action'] + "\"")
+                if rule.get('protocol'):
+                    definition += ", protocol: \"" + rule['protocol'] + "\""
+                if rule.get('descr'):
+                    definition += ", descr: \"" + rule['descr'] + "\""
+                for field in OUTPUT_OPTION_FIELDS:
+                    value = rule.get(field)
+                    if value is not None:
+                        definition += ', {0}: {1}'.format(field, value)
 
-            if rule.get('after'):
-                definition += ", after: \"" + rule['after'] + "\""
-            definition += ", state: \"present\" }"
-            print(definition)
+                if rule.get('after'):
+                    definition += ", after: \"" + rule['after'] + "\""
+                definition += ", state: \"present\" }"
+                print(definition)
 
 
 class PFSenseRuleSeparatorFactory(object):
@@ -1982,16 +1995,20 @@ class PFSenseRuleSeparatorFactory(object):
 
         return ret
 
-    @staticmethod
-    def output_rule_separators(separators):
+    def output_rule_separators(self, separators):
         """ Output rule separators definitions for pfsense_aggregate """
         print("          #===========================")
         print("          # Rule separators")
         print("          # ")
-        for separator in separators:
-            definition = "          - { name: \"" + separator['name'] + "\", interface: \"" + separator['interface']
-            definition += "\", before: \"" + separator['before'] + "\", state: \"present\" }"
-            print(definition)
+        interfaces = list(self._data.target.interfaces.keys())
+        interfaces.sort()
+        for interface in interfaces:
+            for separator in separators:
+                if interface != separator['interface']:
+                    continue
+                definition = "          - { name: \"" + separator['name'] + "\", interface: \"" + separator['interface']
+                definition += "\", before: \"" + separator['before'] + "\", state: \"present\" }"
+                print(definition)
 
 
 class LookupModule(LookupBase):

@@ -14,7 +14,7 @@ ANSIBLE_METADATA = {'metadata_version': '1.1',
 DOCUMENTATION = """
 ---
 module: pfsense_group
-version_added: "2.8"
+version_added: "2.9"
 short_description: Manage pfSense groups
 description:
   >
@@ -25,23 +25,28 @@ options:
   name:
     description: The name of the group
     required: true
+    type: str
   state:
     description: State in which to leave the group
     required: true
     choices: [ "present", "absent" ]
+    type: str
   descr:
     description: Description of the group
+    type: str
   scope:
     description: Scope of the group ('system' is 'Local')
     default: system
     choices: [ "system", "remote" ]
+    type: str
   gid:
     description:
     - GID of the group.
     - Will use next available GID if not specified.
+    type: str
   priv:
     description:
-    - A list of priveleges to assign.
+    - A list of privileges to assign.
     - Allowed values include page-all, user-shell-access.
     type: list
 """
@@ -65,7 +70,7 @@ RETURN = """
 """
 
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.networking.pfsense.pfsense import PFSenseModule
+from ansible.module_utils.network.pfsense.pfsense import PFSenseModule
 
 
 class pfSenseGroup(object):
@@ -111,7 +116,7 @@ class pfSenseGroup(object):
         if group_elt is not None:
             if self.module.check_mode:
                 self.module.exit_json(changed=True)
-            self.groups.remove(group_elt)
+            self.system.remove(group_elt)
             changed = True
             self.pfsense.write_config(descr='ansible pfsense_group removed "%s"' % (group['name']))
         self.module.exit_json(changed=changed)

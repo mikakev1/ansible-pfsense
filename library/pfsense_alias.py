@@ -15,7 +15,7 @@ ANSIBLE_METADATA = {'metadata_version': '1.1',
 DOCUMENTATION = """
 ---
 module: pfsense_alias
-version_added: "2.8"
+version_added: "2.9"
 author: Orion Poplawski (@opoplawski), Frederic Bor (@f-bor)
 short_description: Manage pfSense aliases
 description:
@@ -25,27 +25,34 @@ options:
   name:
     description: The name of the alias
     required: true
+    type: str
   state:
     description: State in which to leave the alias
     required: true
     choices: [ "present", "absent" ]
     default: present
+    type: str
   type:
     description: The type of the alias
     choices: [ "host", "network", "port", "urltable", "urltable_ports" ]
     default: null
+    type: str
   address:
     description: The address of the alias. Use a space separator for multiple values
     default: null
+    type: str
   descr:
     description: The description of the alias
     default: null
+    type: str
   detail:
     description: The descriptions of the items. Use || separator between items
     default: null
+    type: str
   updatefreq:
     description: Update frequency in days for urltable
     default: null
+    type: int
 """
 
 EXAMPLES = """
@@ -75,18 +82,18 @@ diff:
 """
 
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.networking.pfsense.pfsense_alias import PFSenseAliasModule, ALIASES_ARGUMENT_SPEC, ALIASES_REQUIRED_IF
+from ansible.module_utils.network.pfsense.pfsense_alias import PFSenseAliasModule, ALIAS_ARGUMENT_SPEC, ALIAS_REQUIRED_IF
 
 
 def main():
     module = AnsibleModule(
-        argument_spec=ALIASES_ARGUMENT_SPEC,
-        required_if=ALIASES_REQUIRED_IF,
+        argument_spec=ALIAS_ARGUMENT_SPEC,
+        required_if=ALIAS_REQUIRED_IF,
         supports_check_mode=True)
 
-    pfalias = PFSenseAliasModule(module)
-    pfalias.run(module.params)
-    pfalias.commit_changes()
+    pfmodule = PFSenseAliasModule(module)
+    pfmodule.run(module.params)
+    pfmodule.commit_changes()
 
 
 if __name__ == '__main__':

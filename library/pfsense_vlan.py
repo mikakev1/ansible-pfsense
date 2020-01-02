@@ -15,7 +15,7 @@ ANSIBLE_METADATA = {'metadata_version': '1.1',
 DOCUMENTATION = """
 ---
 module: pfsense_vlan
-version_added: "2.8"
+version_added: "2.9"
 author: Frederic Bor (@f-bor)
 short_description: Manage pfSense vlans
 description:
@@ -25,20 +25,25 @@ options:
   vlan_id:
     description: The vlan tag. Must be between 1 and 4094.
     required: true
+    type: int
   interface:
     description: The interface on which to declare the vlan. Friendly name (assignments) can be used.
     required: true
+    type: str
   priority:
     description: 802.1Q VLAN Priority code point. Must be between 0 and 7.
     required: false
+    type: int
   descr:
     description: The description of the vlan
     default: null
+    type: str
   state:
     description: State in which to leave the vlan
     required: true
     choices: [ "present", "absent" ]
     default: present
+    type: str
 """
 
 EXAMPLES = """
@@ -54,6 +59,7 @@ EXAMPLES = """
   pfsense_vlan:
     interface: mvneta0
     vlan_id: 100
+    state: absent
 """
 
 RETURN = """
@@ -65,17 +71,17 @@ commands:
 """
 
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.networking.pfsense.pfsense_vlan import PFSenseVlanModule, VLANS_ARGUMENT_SPEC
+from ansible.module_utils.network.pfsense.pfsense_vlan import PFSenseVlanModule, VLAN_ARGUMENT_SPEC
 
 
 def main():
     module = AnsibleModule(
-        argument_spec=VLANS_ARGUMENT_SPEC,
+        argument_spec=VLAN_ARGUMENT_SPEC,
         supports_check_mode=True)
 
-    pfvlan = PFSenseVlanModule(module)
-    pfvlan.run(module.params)
-    pfvlan.commit_changes()
+    pfmodule = PFSenseVlanModule(module)
+    pfmodule.run(module.params)
+    pfmodule.commit_changes()
 
 
 if __name__ == '__main__':

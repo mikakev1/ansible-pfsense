@@ -14,7 +14,7 @@ ANSIBLE_METADATA = {'metadata_version': '1.1',
 DOCUMENTATION = """
 ---
 module: pfsense_ca
-version_added: "2.8"
+version_added: "2.9"
 short_description: Manage pfSense Certificate Authorities
 description:
   >
@@ -25,22 +25,26 @@ options:
   name:
     description: The name of the Certificate Authority
     required: true
+    type: str
   state:
     description: State in which to leave the Certificate Authority
     required: true
     choices: [ "present", "absent" ]
+    type: str
   certificate:
     description:
       >
         The certificate for the Certificate Authority.  This can be in PEM form or Base64
         encoded PEM as a single string (which is how pfSense stores it).
     required: true
+    type: str
   crl:
     description:
       >
         The Certificate Revocation List for the Certificate Authority.  This can be in PEM
         form or Base64 encoded PEM as a single string (which is how pfSense stores it).
     required: false
+    type: str
 """
 
 EXAMPLES = """
@@ -70,7 +74,7 @@ import base64
 import re
 
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.networking.pfsense.pfsense import PFSenseModule
+from ansible.module_utils.network.pfsense.pfsense import PFSenseModule
 
 
 class pfSenseCA(object):
@@ -102,6 +106,7 @@ class pfSenseCA(object):
         return (found, i)
 
     def validate_cert(self, cert):
+        # TODO - Make sure certificate purpose includes CA
         lines = cert.splitlines()
         if lines[0] == '-----BEGIN CERTIFICATE-----' and lines[-1] == '-----END CERTIFICATE-----':
             return base64.b64encode(cert)
@@ -120,10 +125,12 @@ class pfSenseCA(object):
             self.module.fail_json(msg='Could not recognize CRL format: %s' % (crl))
 
     def add(self, ca):
-        ca_elt, i = self._find_ca(ca['descr'])
+        ca_elt, ca_idx = self._find_ca(ca['descr'])
         changed = False
         crl = {}
         diff = {}
+        stdout = None
+        stderr = None
         if 'crl' in ca:
             crl['method'] = 'existing'
             crl['text'] = ca.pop('crl')
@@ -132,15 +139,15 @@ class pfSenseCA(object):
             changed = True
             ca_elt = self.pfsense.new_element('ca')
             ca['refid'] = self.pfsense.uniqid()
+            self.pfsense.copy_dict_to_element(ca, ca_elt)
+            self.pfsense.root.append(ca_elt)
             if 'text' in crl:
                 crl_elt = self.pfsense.new_element('crl')
                 crl['refid'] = self.pfsense.uniqid()
                 crl['descr'] = ca['descr'] + ' CRL'
                 crl['caref'] = ca['refid']
                 self.pfsense.copy_dict_to_element(crl, crl_elt)
-                self.pfsense.root.insert(i + 1, crl_elt)
-            self.pfsense.copy_dict_to_element(ca, ca_elt)
-            self.pfsense.root.insert(i + 1, ca_elt)
+                self.pfsense.root.append(crl_elt)
             descr = 'ansible pfsense_ca added %s' % (ca['descr'])
         else:
             diff['before'] = self.pfsense.element_to_dict(ca_elt)
@@ -153,7 +160,8 @@ class pfSenseCA(object):
                     crl['descr'] = ca['descr'] + ' CRL'
                     crl['caref'] = ca_elt.find('refid').text
                     self.pfsense.copy_dict_to_element(crl, crl_elt)
-                    self.pfsense.root.insert(crl_index + 1, crl_elt)
+                    # Add after the existing ca entry
+                    self.pfsense.root.insert(ca_idx + 1, crl_elt)
                 else:
                     diff['before']['crl'] = crl_elt.find('text').text
                     changed = self.pfsense.copy_dict_to_element(crl, crl_elt)
@@ -162,10 +170,27 @@ class pfSenseCA(object):
             descr = 'ansible pfsense_ca updated "%s"' % (ca['descr'])
         if changed and not self.module.check_mode:
             self.pfsense.write_config(descr=descr)
+            # ca_import will base64 encode the cert + key  and will fix 'caref' for CAs that reference each other
+            # $ca needs to be an existing reference (particularly 'refid' must be set) before calling ca_import
+            # key and serial are optional arguments.  TODO - handle key and serial
+            (dummy, stdout, stderr) = self.pfsense.phpshell("""
+                init_config_arr(array('ca'));
+                $ca =& lookup_ca('{refid}');
+                ca_import($ca, '{cert}');
+                print_r($ca);
+                print_r($config['ca']);
+                write_config();""".format(refid=ca_elt.find('refid').text, cert=base64.b64decode(ca_elt.find('crt').text)))
+            if 'text' in crl:
+                self.pfsense.phpshell("""
+                    require_once("openvpn.inc");
+                    openvpn_refresh_crls();
+                    require_once("vpn.inc");
+                    vpn_ipsec_configure();""")
+
         diff['after'] = self.pfsense.element_to_dict(ca_elt)
         if 'text' in crl:
             diff['after']['crl'] = crl['text']
-        self.module.exit_json(changed=changed, diff=diff)
+        self.module.exit_json(changed=changed, diff=diff, stdout=stdout, stderr=stderr)
 
     def remove(self, ca):
         ca_elt, dummy = self._find_ca(ca['descr'])
